@@ -1,0 +1,82 @@
+---
+title: "Activity recognition of weight lifting"
+author: "Mykola Pavlov"
+date: "October 27, 2014"
+output: html_document
+---
+
+## Summary
+
+In this report we show how the quality of executing the weight lifting exercise can be measured by sensors. We use machine learning and pattern recognition to detect mistakes in athlete technique with 99% accuracy.
+
+## Data Processing
+
+For data recording it were used four 9 degrees of freedom Razor inertial measurement units (IMU), which provide three-axes acceleration, gyroscope and magnetometer data at a joint sampling rate of 45 Hz. The sensors were mounted in the users’ glove, armband, lumbar belt and dumbbell.
+
+Participants were asked to perform one set of 10 repetitions of the Unilateral Dumbbell Biceps Curl in five different fashions: exactly according to the specification (Class A), throwing the elbows to the front (Class B), lifting the dumbbell only halfway (Class C), lowering the dumbbell only halfway (Class D) and throwing the hips to the front (Class E). Class A corresponds to the specified execution of the exercise, while the other 4 classes correspond to common mistakes. 
+
+Participants were supervised by an experienced weight lifter to make sure the execution complied to the manner they were supposed to simulate. The exercises were performed by six male participants aged between 20-28 years, with little weight lifting experience. 
+
+The Weight Lifting Exercises Dataset was downloaded from http://groupware.les.inf.puc-rio.br/har and imported from CSV format.
+
+```{r cache=TRUE}
+train.raw <- read.csv("~/Downloads/pml-training.csv", header=T, stringsAsFactors=F, na.strings=c(NA,""))
+dim(train.raw)
+str(train.raw)
+```
+
+For feature extraction a sliding window approach was used with different lengths from 0.5 second to 2.5 seconds, with 0.5 second overlap. In each step of the sliding window features were calculated on the Euler angles (roll, pitch and yaw), as well as the raw accelerometer, gyroscope and magnetometer readings. For the Euler angles of each of the four sensors eight features were calculated: mean, variance, standard deviation, max, min, amplitude, kurtosis and skewness, generating in total 96 derived feature sets.
+
+Classe variable was converted into factor. 
+
+```{r}
+train.raw$classe <- as.factor(train.raw$classe)
+```
+
+### NA Values
+
+Because of the way how summarization features were created, `r as.integer(sum(colSums(is.na(train.raw))))` NA values were included into the dataset. For the purpose of this analysis we decided to remove summarization predictors with NAs and focus on raw data. Also we removed identity information (id, user name, timestamps, date, window ids) that may affect generalization of our classifier.
+
+```{r}
+idx <- colSums(is.na(train.raw)) == 0
+ds <- train.raw[,idx]
+ds <- ds[,-c(1,2,3,4,5,6,7)]
+dim(ds)
+```
+
+## Prediction Model
+
+We created two data partition in the proportion of 80% for training our model and 20% for estimation of the generalization error. 
+
+```{r cache=TRUE}
+library(caret)
+inTrain <- createDataPartition(1:dim(ds)[1], p=0.8, list = F)
+train <- ds[inTrain,]
+test <- ds[-inTrain,]
+```
+
+After that we trained the Random Forest classifier with 5-fold cross-validation and 3 different values of the mtry parameter. 
+
+```{r cache=TRUE}
+library(randomForest)
+library(doMC)
+registerDoMC(2)
+ctrl <- trainControl(method="cv", number=5)
+tune <- expand.grid(.mtry=c(5,6,7))
+set.seed(528)
+model <- train(classe ~ ., data=train, method="rf", trControl=ctrl, tuneGrid=tune)
+```
+
+## Results
+
+As you can see on Figure 1, random forest mtry = 7 shows the best perfomance with this dataset.
+
+```{r}
+plot(model, sub="Figure 1. mtry value vs accuracy")
+```
+
+The generalization error estimated on the test set.
+
+```{r}
+confusionMatrix(test$classe, predict(model, test))
+```
